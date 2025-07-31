@@ -1,15 +1,42 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'profile_page.dart';
 
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
+  late AnimationController _fabController;
+  late Animation<double> _fabAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _fabController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _fabAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _fabController, curve: Curves.easeInOut),
+    );
+    _fabController.forward();
+  }
+
+  @override
+  void dispose() {
+    _fabController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
 
-    // This should not happen with AuthWrapper, but just in case
     if (user == null) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -22,50 +49,69 @@ class HomePage extends StatelessWidget {
         .orderBy('createdAt', descending: true);
 
     return Scaffold(
+      backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
-        title: const Text('My To-Do List'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
-        elevation: 2,
+        title: const Text(
+          'My Tasks',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            letterSpacing: -0.5,
+          ),
+        ),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.grey.shade800,
+        elevation: 1,
         actions: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0),
-            child: Row(
-              children: [
-                Text(
-                  'Hello, ${user.email?.split('@').first ?? "User"}',
-                  style: const TextStyle(fontSize: 14),
+          // Profile Button
+          IconButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ProfilePage()),
+              );
+            },
+            icon: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.blue.shade400, Colors.purple.shade400],
                 ),
-                const SizedBox(width: 8),
-                IconButton(
-                  onPressed: () async {
-                    showDialog(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('Logout'),
-                        content: const Text('Are you sure you want to logout?'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('Cancel'),
-                          ),
-                          TextButton(
-                            onPressed: () async {
-                              Navigator.pop(context);
-                              await FirebaseAuth.instance.signOut();
-                              // The AuthWrapper will automatically handle navigation
-                            },
-                            child: const Text('Logout'),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.logout),
-                  tooltip: 'Logout',
-                )
-              ],
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.person,
+                color: Colors.white,
+                size: 20,
+              ),
             ),
+            tooltip: 'Profile Settings',
+          ),
+          // Logout Button
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Logout'),
+                  content: const Text('Are you sure you want to logout?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        await FirebaseAuth.instance.signOut();
+                      },
+                      child: const Text('Logout'),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -78,22 +124,7 @@ class HomePage extends StatelessWidget {
 
           if (snapshot.hasError) {
             return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.error, size: 64, color: Colors.red),
-                  const SizedBox(height: 16),
-                  Text('Error: ${snapshot.error}'),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () {
-                      // Trigger a rebuild
-                      (context as Element).reassemble();
-                    },
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
+              child: Text('Error loading tasks: ${snapshot.error}'),
             );
           }
 
@@ -101,22 +132,15 @@ class HomePage extends StatelessWidget {
 
           if (docs.isEmpty) {
             return const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.task_alt, size: 64, color: Colors.grey),
-                  SizedBox(height: 16),
-                  Text(
-                    "No tasks yet. Add your first task!",
-                    style: TextStyle(fontSize: 18, color: Colors.grey),
-                  ),
-                ],
+              child: Text(
+                'No tasks found. Start by adding a new one!',
+                style: TextStyle(color: Colors.grey),
               ),
             );
           }
 
           return ListView.builder(
-            padding: const EdgeInsets.all(8.0),
+            padding: const EdgeInsets.all(8),
             itemCount: docs.length,
             itemBuilder: (context, index) {
               final task = docs[index];
@@ -125,28 +149,20 @@ class HomePage extends StatelessWidget {
               final isDone = data['isDone'] ?? false;
 
               return Card(
-                margin: const EdgeInsets.symmetric(vertical: 4.0),
                 child: ListTile(
-                  title: Text(
-                    title,
-                    style: TextStyle(
-                      decoration: isDone
-                          ? TextDecoration.lineThrough
-                          : TextDecoration.none,
-                      color: isDone ? Colors.grey : Colors.black,
-                    ),
-                  ),
                   leading: Checkbox(
                     value: isDone,
                     onChanged: (value) async {
-                      try {
-                        await task.reference.update({'isDone': value});
-                      } catch (e) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Error updating task: $e')),
-                        );
-                      }
+                      await task.reference.update({'isDone': value});
                     },
+                  ),
+                  title: Text(
+                    title,
+                    style: TextStyle(
+                      decoration:
+                          isDone ? TextDecoration.lineThrough : TextDecoration.none,
+                      color: isDone ? Colors.grey : Colors.black,
+                    ),
                   ),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete, color: Colors.red),
@@ -164,13 +180,7 @@ class HomePage extends StatelessWidget {
                             TextButton(
                               onPressed: () async {
                                 Navigator.pop(context);
-                                try {
-                                  await task.reference.delete();
-                                } catch (e) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Error deleting task: $e')),
-                                  );
-                                }
+                                await task.reference.delete();
                               },
                               child: const Text('Delete'),
                             ),
@@ -185,12 +195,13 @@ class HomePage extends StatelessWidget {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          _showAddTaskDialog(context, user.uid);
-        },
-        backgroundColor: Colors.blue,
-        child: const Icon(Icons.add, color: Colors.white),
+      floatingActionButton: FadeTransition(
+        opacity: _fabAnimation,
+        child: FloatingActionButton(
+          onPressed: () => _showAddTaskDialog(context, user.uid),
+          backgroundColor: Colors.blueAccent,
+          child: const Icon(Icons.add),
+        ),
       ),
     );
   }
@@ -200,52 +211,41 @@ class HomePage extends StatelessWidget {
 
     showDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text("New Task"),
-          content: TextField(
-            controller: taskController,
-            autofocus: true,
-            decoration: const InputDecoration(
-              hintText: "Enter task title",
-              border: OutlineInputBorder(),
-            ),
-            maxLines: 3,
-            minLines: 1,
+      builder: (context) => AlertDialog(
+        title: const Text('New Task'),
+        content: TextField(
+          controller: taskController,
+          decoration: const InputDecoration(
+            hintText: 'Enter task title',
+            border: OutlineInputBorder(),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Cancel"),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final title = taskController.text.trim();
-                if (title.isNotEmpty) {
-                  try {
-                    await FirebaseFirestore.instance.collection('tasks').add({
-                      'title': title,
-                      'isDone': false,
-                      'userId': userId,
-                      'createdAt': FieldValue.serverTimestamp(),
-                    });
-                    Navigator.pop(context);
-                  } catch (e) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Error adding task: $e')),
-                    );
-                  }
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Please enter a task title')),
-                  );
-                }
-              },
-              child: const Text("Add"),
-            ),
-          ],
-        );
-      },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final title = taskController.text.trim();
+              if (title.isNotEmpty) {
+                await FirebaseFirestore.instance.collection('tasks').add({
+                  'title': title,
+                  'isDone': false,
+                  'userId': userId,
+                  'createdAt': FieldValue.serverTimestamp(),
+                });
+                Navigator.pop(context);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please enter a task title')),
+                );
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
     );
   }
 }
