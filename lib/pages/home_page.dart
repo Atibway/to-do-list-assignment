@@ -9,12 +9,8 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
 
-    // 🔐 Handle null user by redirecting
+    // This should not happen with AuthWrapper, but just in case
     if (user == null) {
-      // Schedule navigation on next frame
-      Future.microtask(() {
-        Navigator.pushReplacementNamed(context, '/login');
-      });
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );
@@ -22,20 +18,55 @@ class HomePage extends StatelessWidget {
 
     final tasksRef = FirebaseFirestore.instance
         .collection('tasks')
-        .where('userId', isEqualTo: user.uid);
+        .where('userId', isEqualTo: user.uid)
+        .orderBy('createdAt', descending: true);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('My To-Do List'),
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
+        elevation: 2,
         actions: [
-          IconButton(
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              Navigator.pushReplacementNamed(context, '/login');
-            },
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout',
-          )
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: Row(
+              children: [
+                Text(
+                  'Hello, ${user.email?.split('@').first ?? "User"}',
+                  style: const TextStyle(fontSize: 14),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: () async {
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('Logout'),
+                        content: const Text('Are you sure you want to logout?'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Cancel'),
+                          ),
+                          TextButton(
+                            onPressed: () async {
+                              Navigator.pop(context);
+                              await FirebaseAuth.instance.signOut();
+                              // The AuthWrapper will automatically handle navigation
+                            },
+                            child: const Text('Logout'),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.logout),
+                  tooltip: 'Logout',
+                )
+              ],
+            ),
+          ),
         ],
       ),
       body: StreamBuilder<QuerySnapshot>(
@@ -45,38 +76,109 @@ class HomePage extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
+          if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error, size: 64, color: Colors.red),
+                  const SizedBox(height: 16),
+                  Text('Error: ${snapshot.error}'),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () {
+                      // Trigger a rebuild
+                      (context as Element).reassemble();
+                    },
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            );
+          }
+
           final docs = snapshot.data?.docs ?? [];
 
           if (docs.isEmpty) {
-            return const Center(child: Text("No tasks yet. Add one!"));
+            return const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.task_alt, size: 64, color: Colors.grey),
+                  SizedBox(height: 16),
+                  Text(
+                    "No tasks yet. Add your first task!",
+                    style: TextStyle(fontSize: 18, color: Colors.grey),
+                  ),
+                ],
+              ),
+            );
           }
 
           return ListView.builder(
+            padding: const EdgeInsets.all(8.0),
             itemCount: docs.length,
             itemBuilder: (context, index) {
               final task = docs[index];
-              final title = task['title'];
-              final isDone = task['isDone'];
+              final data = task.data() as Map<String, dynamic>;
+              final title = data['title'] ?? 'Untitled Task';
+              final isDone = data['isDone'] ?? false;
 
-              return ListTile(
-                title: Text(
-                  title,
-                  style: TextStyle(
-                    decoration:
-                        isDone ? TextDecoration.lineThrough : TextDecoration.none,
+              return Card(
+                margin: const EdgeInsets.symmetric(vertical: 4.0),
+                child: ListTile(
+                  title: Text(
+                    title,
+                    style: TextStyle(
+                      decoration: isDone
+                          ? TextDecoration.lineThrough
+                          : TextDecoration.none,
+                      color: isDone ? Colors.grey : Colors.black,
+                    ),
                   ),
-                ),
-                leading: Checkbox(
-                  value: isDone,
-                  onChanged: (value) {
-                    task.reference.update({'isDone': value});
-                  },
-                ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete),
-                  onPressed: () {
-                    task.reference.delete();
-                  },
+                  leading: Checkbox(
+                    value: isDone,
+                    onChanged: (value) async {
+                      try {
+                        await task.reference.update({'isDone': value});
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Error updating task: $e')),
+                        );
+                      }
+                    },
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.red),
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Delete Task'),
+                          content: Text('Are you sure you want to delete "$title"?'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('Cancel'),
+                            ),
+                            TextButton(
+                              onPressed: () async {
+                                Navigator.pop(context);
+                                try {
+                                  await task.reference.delete();
+                                } catch (e) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Error deleting task: $e')),
+                                  );
+                                }
+                              },
+                              child: const Text('Delete'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 ),
               );
             },
@@ -87,13 +189,14 @@ class HomePage extends StatelessWidget {
         onPressed: () {
           _showAddTaskDialog(context, user.uid);
         },
-        child: const Icon(Icons.add),
+        backgroundColor: Colors.blue,
+        child: const Icon(Icons.add, color: Colors.white),
       ),
     );
   }
 
   void _showAddTaskDialog(BuildContext context, String userId) {
-    final TextEditingController _taskController = TextEditingController();
+    final TextEditingController taskController = TextEditingController();
 
     showDialog(
       context: context,
@@ -101,9 +204,14 @@ class HomePage extends StatelessWidget {
         return AlertDialog(
           title: const Text("New Task"),
           content: TextField(
-            controller: _taskController,
+            controller: taskController,
             autofocus: true,
-            decoration: const InputDecoration(hintText: "Enter task title"),
+            decoration: const InputDecoration(
+              hintText: "Enter task title",
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 3,
+            minLines: 1,
           ),
           actions: [
             TextButton(
@@ -112,15 +220,26 @@ class HomePage extends StatelessWidget {
             ),
             ElevatedButton(
               onPressed: () async {
-                final title = _taskController.text.trim();
+                final title = taskController.text.trim();
                 if (title.isNotEmpty) {
-                  await FirebaseFirestore.instance.collection('tasks').add({
-                    'title': title,
-                    'isDone': false,
-                    'userId': userId,
-                  });
+                  try {
+                    await FirebaseFirestore.instance.collection('tasks').add({
+                      'title': title,
+                      'isDone': false,
+                      'userId': userId,
+                      'createdAt': FieldValue.serverTimestamp(),
+                    });
+                    Navigator.pop(context);
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error adding task: $e')),
+                    );
+                  }
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please enter a task title')),
+                  );
                 }
-                Navigator.pop(context);
               },
               child: const Text("Add"),
             ),
