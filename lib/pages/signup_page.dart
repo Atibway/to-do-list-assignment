@@ -62,40 +62,42 @@ class _SignUpPageState extends State<SignUpPage> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  Future<void> _signUp() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+// 3. Fix the signup_page.dart error handling
+Future<void> _signUp() async {
+  if (!_formKey.currentState!.validate()) {
+    return;
+  }
 
-    if (!_agreeToTerms) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please agree to the Terms of Service and Privacy Policy'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
+  if (!_agreeToTerms) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Please agree to the Terms of Service and Privacy Policy'),
+        backgroundColor: Colors.orange,
+      ),
+    );
+    return;
+  }
 
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+  setState(() {
+    _isLoading = true;
+    _error = null;
+  });
 
-    try {
-      // Create user account
-      UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
-      );
+  try {
+    // Create user account
+    UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+      email: _emailController.text.trim(),
+      password: _passwordController.text,
+    );
 
-      // Update user profile with display name
-      await userCredential.user?.updateDisplayName(_nameController.text.trim());
-      
-      // Send email verification
-      await userCredential.user?.sendEmailVerification();
-      
-      // Show success message
+    // Update user profile with display name
+    await userCredential.user?.updateDisplayName(_nameController.text.trim());
+    
+    // Send email verification
+    await userCredential.user?.sendEmailVerification();
+    
+    // Show success message
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('Account created successfully! Please check your email for verification.'),
@@ -109,7 +111,12 @@ class _SignUpPageState extends State<SignUpPage> with TickerProviderStateMixin {
         ),
       );
 
-    } on FirebaseAuthException catch (e) {
+      // Navigate to login page instead of home
+      Navigator.pushReplacementNamed(context, '/login');
+    }
+
+  } on FirebaseAuthException catch (e) {
+    if (mounted) {
       setState(() {
         switch (e.code) {
           case 'weak-password':
@@ -124,19 +131,31 @@ class _SignUpPageState extends State<SignUpPage> with TickerProviderStateMixin {
           case 'operation-not-allowed':
             _error = 'Email/password accounts are not enabled.';
             break;
+          case 'network-request-failed':
+            _error = 'Network error. Please check your internet connection.';
+            break;
+          case 'too-many-requests':
+            _error = 'Too many failed attempts. Please try again later.';
+            break;
           default:
-            _error = 'Failed to create account. Please try again.';
+            _error = 'Failed to create account: ${e.message}';
+            print('Firebase Auth Error: ${e.code} - ${e.message}'); // For debugging
         }
       });
-    } catch (e) {
+    }
+  } catch (e) {
+    if (mounted) {
       setState(() {
-        _error = 'An unexpected error occurred. Please try again.';
+        _error = 'An unexpected error occurred: $e';
       });
-    } finally {
+      print('Unexpected error during signup: $e'); // For debugging
+    }
+  } finally {
+    if (mounted) {
       setState(() => _isLoading = false);
     }
   }
-
+}
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,

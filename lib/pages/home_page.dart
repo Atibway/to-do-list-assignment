@@ -45,8 +45,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     final tasksRef = FirebaseFirestore.instance
         .collection('tasks')
-        .where('userId', isEqualTo: user.uid)
-        .orderBy('createdAt', descending: true);
+        .where('userId', isEqualTo: user.uid);
 
     return Scaffold(
       backgroundColor: Colors.grey.shade50,

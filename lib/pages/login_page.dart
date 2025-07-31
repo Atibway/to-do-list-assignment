@@ -56,26 +56,44 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  Future<void> _login() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
+
+Future<void> _login() async {
+  if (!_formKey.currentState!.validate()) {
+    return;
+  }
+
+  setState(() {
+    _isLoading = true;
+    _errorMessage = null;
+  });
+
+  try {
+    final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+      email: _emailController.text.trim(),
+      password: _passwordController.text,
+    );
+
+    // Check if user is verified (optional - remove if you don't want to enforce)
+    if (credential.user != null && !credential.user!.emailVerified) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Please verify your email address first'),
+          backgroundColor: Colors.orange,
+          action: SnackBarAction(
+            label: 'Resend',
+            onPressed: () {
+              credential.user!.sendEmailVerification();
+            },
+          ),
+        ),
+      );
     }
 
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+    // Don't manually navigate - let AuthWrapper handle it
+    // The AuthWrapper will automatically navigate to HomePage when user is authenticated
 
-    try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
-      );
-
-
-Navigator.pushReplacementNamed(context, '/home'); // Replace with your desired screen
-
-    } on FirebaseAuthException catch (e) {
+  } on FirebaseAuthException catch (e) {
+    if (mounted) {
       setState(() {
         switch (e.code) {
           case 'user-not-found':
@@ -96,20 +114,30 @@ Navigator.pushReplacementNamed(context, '/home'); // Replace with your desired s
           case 'invalid-credential':
             _errorMessage = 'Invalid email or password. Please check your credentials.';
             break;
+          case 'network-request-failed':
+            _errorMessage = 'Network error. Please check your internet connection.';
+            break;
           default:
-            _errorMessage = 'Login failed. Please try again.';
+            _errorMessage = 'Login failed: ${e.message}';
+            print('Firebase Auth Error: ${e.code} - ${e.message}'); // For debugging
         }
       });
-    } catch (e) {
+    }
+  } catch (e) {
+    if (mounted) {
       setState(() {
-        _errorMessage = 'An unexpected error occurred. Please try again.';
+        _errorMessage = 'An unexpected error occurred: $e';
       });
-    } finally {
+      print('Unexpected error during login: $e'); // For debugging
+    }
+  } finally {
+    if (mounted) {
       setState(() {
         _isLoading = false;
       });
     }
   }
+}
 
   Future<void> _resetPassword() async {
     final email = _emailController.text.trim();
