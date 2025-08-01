@@ -17,6 +17,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Admin Dashboard - Task Manager",
   description: "Professional admin dashboard for task management application",
+    icons: {
+    icon: "/todo.jpg",
+    shortcut: "/todo.jpg",
+    apple: "/todo.jpg",
+  },
 };
 
 export default function RootLayout({
