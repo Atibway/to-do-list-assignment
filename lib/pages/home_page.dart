@@ -25,12 +25,46 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       CurvedAnimation(parent: _fabController, curve: Curves.easeInOut),
     );
     _fabController.forward();
+    
+    // Save user data when the page loads
+    _saveUserData();
   }
 
   @override
   void dispose() {
     _fabController.dispose();
     super.dispose();
+  }
+
+  // Save user data to Firestore for admin dashboard
+  Future<void> _saveUserData() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final userRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+      
+      // Check if user document already exists
+      final userDoc = await userRef.get();
+      
+      final userData = {
+        'email': user.email ?? '',
+        'displayName': user.displayName ?? '',
+        'photoURL': user.photoURL ?? '',
+        'emailVerified': user.emailVerified,
+        'lastLoginAt': FieldValue.serverTimestamp(),
+      };
+
+      if (!userDoc.exists) {
+        // New user - add createdAt timestamp
+        userData['createdAt'] = FieldValue.serverTimestamp();
+      }
+
+      await userRef.set(userData, SetOptions(merge: true));
+      print('User data saved successfully');
+    } catch (e) {
+      print('Error saving user data: $e');
+    }
   }
 
   @override
@@ -152,7 +186,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   leading: Checkbox(
                     value: isDone,
                     onChanged: (value) async {
-                      await task.reference.update({'isDone': value});
+                      await task.reference.update({
+                        'isDone': value,
+                        'updatedAt': FieldValue.serverTimestamp(),
+                      });
                     },
                   ),
                   title: Text(
@@ -197,7 +234,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       floatingActionButton: FadeTransition(
         opacity: _fabAnimation,
         child: FloatingActionButton(
-          onPressed: () => _showAddTaskDialog(context, user.uid),
+          onPressed: () => _showAddTaskDialog(context, user),
           backgroundColor: Colors.blueAccent,
           child: const Icon(Icons.add),
         ),
@@ -205,7 +242,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  void _showAddTaskDialog(BuildContext context, String userId) {
+  void _showAddTaskDialog(BuildContext context, User user) {
     final TextEditingController taskController = TextEditingController();
 
     showDialog(
@@ -228,13 +265,51 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             onPressed: () async {
               final title = taskController.text.trim();
               if (title.isNotEmpty) {
-                await FirebaseFirestore.instance.collection('tasks').add({
-                  'title': title,
-                  'isDone': false,
-                  'userId': userId,
-                  'createdAt': FieldValue.serverTimestamp(),
-                });
-                Navigator.pop(context);
+                try {
+                  // Save user data first (in case profile was updated)
+                  await _saveUserData();
+                  
+                  // Create task with comprehensive user information
+                  await FirebaseFirestore.instance.collection('tasks').add({
+                    'title': title,
+                    'isDone': false,
+                    'userId': user.uid,
+                    
+                    // User information for admin dashboard
+                    'userEmail': user.email ?? '',
+                    'userDisplayName': user.displayName ?? '',
+                    'userPhotoURL': user.photoURL ?? '',
+                    'userEmailVerified': user.emailVerified,
+                    
+                    // Timestamps
+                    'createdAt': FieldValue.serverTimestamp(),
+                    'updatedAt': FieldValue.serverTimestamp(),
+                    
+                    // Optional: Additional metadata
+                    'deviceInfo': {
+                      'platform': 'Flutter',
+                      'userAgent': 'Mobile App'
+                    }
+                  });
+                  
+                  Navigator.pop(context);
+                  
+                  // Show success message
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Task added successfully!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                } catch (e) {
+                  print('Error adding task: $e');
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error adding task: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Please enter a task title')),
@@ -247,4 +322,39 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ),
     );
   }
+
+  // Method to update existing tasks with user info (call once if needed)
+  // Future<void> _updateExistingTasks() async {
+  //   final user = FirebaseAuth.instance.currentUser;
+  //   if (user == null) return;
+
+  //   try {
+  //     final tasksQuery = await FirebaseFirestore.instance
+  //         .collection('tasks')
+  //         .where('userId', isEqualTo: user.uid)
+  //         .get();
+
+  //     final batch = FirebaseFirestore.instance.batch();
+
+  //     for (var doc in tasksQuery.docs) {
+  //       final data = doc.data();
+        
+  //       // Only update if user email is missing
+  //       if (data['userEmail'] == null || data['userEmail'] == '') {
+  //         batch.update(doc.reference, {
+  //           'userEmail': user.email ?? '',
+  //           'userDisplayName': user.displayName ?? '',
+  //           'userPhotoURL': user.photoURL ?? '',
+  //           'userEmailVerified': user.emailVerified,
+  //           'updatedAt': FieldValue.serverTimestamp(),
+  //         });
+  //       }
+  //     }
+
+  //     await batch.commit();
+  //     print('Existing tasks updated with user info');
+  //   } catch (e) {
+  //     print('Error updating existing tasks: $e');
+  //   }
+  // }
 }

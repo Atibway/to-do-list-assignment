@@ -52,8 +52,7 @@ export default function TasksPage() {
       
       const tasksList: Task[] = tasksSnapshot.docs.map(doc => ({
         id: doc.id,
-        ...doc.data(),
-        userEmail: `user@example.com` // Mock email for demo
+        ...doc.data()
       } as Task))
 
       setTasks(tasksList)
